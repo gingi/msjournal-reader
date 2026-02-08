@@ -3,6 +3,10 @@ __pycache__/
 *.pyc
 .env
 .env.*
+# Build artifacts
+*.egg-info/
+dist/
+build/
 # Outputs / scratch
 out*/
 tmp/
