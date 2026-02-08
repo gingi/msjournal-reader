@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Incrementally export Microsoft Journal .ink files and rebuild yearly markdown.
+"""Incrementally export Microsoft Journal .ink files and update derived artifacts.
 
-This avoids re-OCRing everything nightly by skipping pages already exported.
+- Skips pages already exported (non-empty page_XXXX.txt)
+- Rebuilds combined.txt/combined.md per journal
+- Rebuilds yearly markdown files
+- Updates the SQLite FTS index
 
-Config is expected to be per-user and should live under user_corrections/local/.
+Per-user config should live under user_corrections/local/.
 
 Usage:
-  # example
   PYTHONPATH=. python3 scripts/update_exports.py \
     --config user_corrections/local/journals.json \
     --exports-base "/c/.../exports/msjournal-reader" \
-    --yearly-out "/c/.../exports/msjournal-reader/yearly"
+    --yearly-out "/c/.../exports/msjournal-reader/yearly" \
+    --index-db "/c/.../exports/msjournal-reader/index/journal_index.sqlite"
 """
 
 from __future__ import annotations
@@ -19,7 +22,6 @@ import argparse
 import json
 import re
 import sqlite3
-from dataclasses import dataclass
 from pathlib import Path
 
 from msjournal_reader.corrections import apply_corrections
@@ -34,11 +36,6 @@ def slug(s: str) -> str:
     return s or "journal"
 
 
-@dataclass(frozen=True)
-class JournalCfg:
-    path: Path
-
-
 def load_config(p: Path) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
@@ -47,11 +44,9 @@ def iter_pages(ink_path: Path):
     con = sqlite3.connect(str(ink_path))
     con.row_factory = sqlite3.Row
     cur = con.cursor()
-
     cur.execute("SELECT id, page_order FROM pages ORDER BY page_order")
     for row in cur.fetchall():
         yield row["id"], int(row["page_order"])
-
     con.close()
 
 
@@ -71,11 +66,8 @@ def get_png_blob(ink_path: Path, page_id: bytes) -> bytes | None:
 
 
 def write_outputs(doc_out: Path, page_order: int, text: str) -> None:
-    page_txt = doc_out / f"page_{page_order:04d}.txt"
-    page_md = doc_out / f"page_{page_order:04d}.md"
-
-    page_txt.write_text(text, encoding="utf-8")
-    page_md.write_text(f"# Page {page_order}\n\n{text}\n", encoding="utf-8")
+    (doc_out / f"page_{page_order:04d}.txt").write_text(text, encoding="utf-8")
+    (doc_out / f"page_{page_order:04d}.md").write_text(f"# Page {page_order}\n\n{text}\n", encoding="utf-8")
 
 
 def rebuild_combined(doc_out: Path) -> None:
@@ -100,23 +92,32 @@ def main() -> None:
     ap.add_argument("--config", required=True)
     ap.add_argument("--exports-base", required=True)
     ap.add_argument("--yearly-out", required=True)
+    ap.add_argument("--index-db", required=True)
     args = ap.parse_args()
 
     cfg_path = Path(args.config)
     exports_base = Path(args.exports_base)
     yearly_out = Path(args.yearly_out)
+    index_db = Path(args.index_db)
 
     cfg = load_config(cfg_path)
     journals = [Path(x) for x in (cfg.get("journals") or [])]
     if not journals:
         raise SystemExit("Config has no journals[]")
 
-    corrections_map = cfg.get("corrections_map")
-    corr_path = Path(corrections_map).expanduser().resolve() if corrections_map else None
+    corr_path = None
+    if cfg.get("corrections_map"):
+        corr_path = Path(str(cfg["corrections_map"])).expanduser().resolve()
 
-    engine = build_engine("azure", azure_language=str(cfg.get("azure_language", "en")), azure_timeout_s=int(cfg.get("azure_timeout_s", 180)))
+    engine = build_engine(
+        "azure",
+        azure_language=str(cfg.get("azure_language", "en")),
+        azure_timeout_s=int(cfg.get("azure_timeout_s", 180)),
+    )
 
     exports_base.mkdir(parents=True, exist_ok=True)
+    yearly_out.mkdir(parents=True, exist_ok=True)
+    index_db.parent.mkdir(parents=True, exist_ok=True)
 
     total_new = 0
 
@@ -136,7 +137,6 @@ def main() -> None:
 
             png = get_png_blob(ink, page_id)
             if not png:
-                # still create empty file to avoid rework
                 out_txt.write_text("", encoding="utf-8")
                 continue
 
@@ -149,9 +149,8 @@ def main() -> None:
 
         rebuild_combined(doc_out)
 
-    # rebuild year files
-    import runpy
-    import sys
+    # Rebuild yearly markdown
+    import runpy, sys
 
     sys.argv = [
         "build_year_exports.py",
@@ -161,6 +160,16 @@ def main() -> None:
         str(yearly_out),
     ]
     runpy.run_path(str(Path(__file__).resolve().parent / "build_year_exports.py"), run_name="__main__")
+
+    # Rebuild/update index
+    sys.argv = [
+        "build_index.py",
+        "--exports-base",
+        str(exports_base),
+        "--db",
+        str(index_db),
+    ]
+    runpy.run_path(str(Path(__file__).resolve().parent / "build_index.py"), run_name="__main__")
 
     print(f"DONE: exported new_pages={total_new}")
 
