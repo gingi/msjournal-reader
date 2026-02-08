@@ -39,12 +39,27 @@ def process_ink(
     azure_language: str,
     azure_timeout_s: int,
     corrections_map: Path | None,
+    postcorrector_model: Path | None,
+    postcorrector_device: str,
 ) -> Path:
     stem = slug(ink_path.stem)
     doc_out = out_dir / stem
     doc_out.mkdir(parents=True, exist_ok=True)
 
     engine = build_engine(engine_name, azure_language=azure_language, azure_timeout_s=azure_timeout_s)
+
+    postcorrector = None
+    if postcorrector_model:
+        try:
+            from msjournal_reader.postcorrector import load_postcorrector
+
+            postcorrector = load_postcorrector(postcorrector_model, device=postcorrector_device)
+        except Exception as e:
+            raise RuntimeError(
+                "Failed to load post-corrector. Install optional ML deps (requirements-ml.txt) "
+                "and verify --postcorrector-model points at a trained model directory.\n\n"
+                f"Original error: {e}"
+            )
 
     pages = extract_pages_png(ink_path)
 
@@ -54,6 +69,8 @@ def process_ink(
     for page in pages:
         text = engine.ocr_png_bytes(page.png_bytes)
         text = apply_corrections(text, corrections_map)
+        if postcorrector:
+            text = postcorrector.apply(text)
 
         page_txt = doc_out / f"page_{page.order:04d}.txt"
         page_md = doc_out / f"page_{page.order:04d}.md"
@@ -89,12 +106,40 @@ def main() -> None:
         default=None,
         help="Optional JSON corrections (dict map or regex list) applied post-OCR",
     )
+    ap.add_argument(
+        "--postcorrector-model",
+        default=None,
+        help="Optional trained seq2seq model dir (e.g. user_corrections/local/models/byt5). Applied after corrections-map.",
+    )
+    ap.add_argument(
+        "--allow-nonlocal-postcorrector",
+        action="store_true",
+        help="Allow a post-corrector model path outside user_corrections/local/ (not recommended; easier to accidentally commit).",
+    )
+    ap.add_argument("--postcorrector-device", default="cpu", help="cpu|cuda|mps (default: cpu)")
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     corr = Path(args.corrections_map).expanduser().resolve() if args.corrections_map else None
+    pc_model = Path(args.postcorrector_model).expanduser().resolve() if args.postcorrector_model else None
+    if pc_model and not args.allow_nonlocal_postcorrector:
+        from msjournal_reader.local_paths import require_under
+
+        repo_root = Path(__file__).resolve().parents[1]
+        allowed = (repo_root / "user_corrections" / "local").resolve()
+        try:
+            pc_model = require_under(
+                pc_model,
+                allowed,
+                hint=(
+                    "Refusing to load --postcorrector-model outside user_corrections/local/. "
+                    "Move it under user_corrections/local/ (recommended), or pass --allow-nonlocal-postcorrector."
+                ),
+            )
+        except ValueError as e:
+            raise SystemExit(str(e))
 
     for inp in args.inputs:
         ink_path = Path(inp).expanduser().resolve()
@@ -108,6 +153,8 @@ def main() -> None:
             azure_language=args.azure_language,
             azure_timeout_s=args.azure_timeout,
             corrections_map=corr,
+            postcorrector_model=pc_model,
+            postcorrector_device=str(args.postcorrector_device),
         )
         print(f"OK: {ink_path.name} -> {combined}")
 

@@ -1,0 +1,6 @@
+# Optional ML deps for the per-user post-corrector (hyp -> gold)
+transformers>=4.38
+datasets>=2.18
+accelerate>=0.27
+sentencepiece>=0.1.99
+torch>=2.1
