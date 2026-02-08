@@ -1,0 +1,7 @@
+requests>=2.31
+python-dotenv>=1.0
+# optional preprocessing
+pillow>=10.0; platform_system != "Windows" or python_version >= "3.8"
+opencv-python>=4.8; platform_system != "Windows" or python_version >= "3.8"
+# evaluation/training scripts
+jiwer>=3.0

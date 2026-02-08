@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+# Outputs / scratch
+out*/
+tmp/
+# Optional training data (often sensitive)
+gold/
+# User-specific corrections (keep local; don't publish)
+user_corrections/local/
+# OS
+.DS_Store
