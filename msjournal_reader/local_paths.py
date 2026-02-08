@@ -3,23 +3,43 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def is_under(path: Path, root: Path) -> bool:
-    """Return True if path is under root (after resolving)."""
-    p = path.expanduser().resolve()
-    r = root.expanduser().resolve()
+def is_under(path: Path, root: Path, *, resolve_symlinks: bool = True) -> bool:
+    """Return True if path is under root.
+
+    If resolve_symlinks=True (default), compares fully-resolved paths.
+    If resolve_symlinks=False, compares lexical/absolute paths so symlinks under
+    root are allowed even if they point elsewhere.
+    """
+    p = path.expanduser()
+    r = root.expanduser()
+
+    p2 = p.resolve() if resolve_symlinks else p.absolute()
+    r2 = r.resolve() if resolve_symlinks else r.absolute()
+
     try:
-        return p.is_relative_to(r)  # py3.9+
+        return p2.is_relative_to(r2)  # py3.9+
     except Exception:
-        return str(p).startswith(str(r) + "/")
+        return str(p2).startswith(str(r2) + "/")
 
 
-def require_under(path: Path, root: Path, *, hint: str | None = None) -> Path:
-    """Resolve and require that path is under root."""
-    p = path.expanduser().resolve()
-    r = root.expanduser().resolve()
-    if not is_under(p, r):
-        msg = f"Path must be under {r}: {p}"
+def require_under(
+    path: Path,
+    root: Path,
+    *,
+    hint: str | None = None,
+    resolve_symlinks: bool = True,
+) -> Path:
+    """Return the chosen normalized path and require that it is under root."""
+    p = path.expanduser()
+    r = root.expanduser()
+
+    p2 = p.resolve() if resolve_symlinks else p.absolute()
+    r2 = r.resolve() if resolve_symlinks else r.absolute()
+
+    if not is_under(p2, r2, resolve_symlinks=False):
+        msg = f"Path must be under {r2}: {p2}"
         if hint:
             msg += "\n" + str(hint)
         raise ValueError(msg)
-    return p
+
+    return p2

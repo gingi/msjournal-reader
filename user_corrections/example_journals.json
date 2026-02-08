@@ -1,0 +1,11 @@
+{
+  "azure_language": "en",
+  "azure_timeout_s": 180,
+  "corrections_map": "user_corrections/local/john_regex.v2.json",
+  "journals": [
+    "~/Downloads/journal1.ink",
+    "~/Downloads/journal2.ink",
+    "~/Downloads/journal3.ink",
+    "~/Downloads/journal4.ink"
+  ]
+}

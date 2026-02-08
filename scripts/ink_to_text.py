@@ -130,6 +130,8 @@ def main() -> None:
         repo_root = Path(__file__).resolve().parents[1]
         allowed = (repo_root / "user_corrections" / "local").resolve()
         try:
+            # Allow symlinks under user_corrections/local/ so you can keep the
+            # actual model directory on OneDrive and link it back.
             pc_model = require_under(
                 pc_model,
                 allowed,
@@ -137,6 +139,7 @@ def main() -> None:
                     "Refusing to load --postcorrector-model outside user_corrections/local/. "
                     "Move it under user_corrections/local/ (recommended), or pass --allow-nonlocal-postcorrector."
                 ),
+                resolve_symlinks=False,
             )
         except ValueError as e:
             raise SystemExit(str(e))

@@ -105,6 +105,8 @@ def main() -> None:
 
     collator = DataCollatorForSeq2Seq(tokenizer=tok, model=model)
 
+    # transformers v5 removed/renamed some TrainingArguments fields.
+    # Keep args minimal so it works across versions.
     training_args = Seq2SeqTrainingArguments(
         output_dir=str(out_dir / "_runs"),
         num_train_epochs=float(args.epochs),
@@ -113,7 +115,6 @@ def main() -> None:
         gradient_accumulation_steps=4,
         logging_steps=5,
         save_strategy="no",
-        evaluation_strategy="no",
         report_to=[],
         fp16=False,
     )
@@ -123,7 +124,6 @@ def main() -> None:
         args=training_args,
         train_dataset=tds,
         data_collator=collator,
-        tokenizer=tok,
     )
 
     trainer.train()
