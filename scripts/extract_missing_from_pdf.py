@@ -147,7 +147,7 @@ def render_page_png_bytes(doc: fitz.Document, page_index: int, *, dpi: int) -> b
 
 
 def write_outputs(doc_out: Path, stem: str, text: str, prov: Provenance) -> None:
-    (doc_out / f"{stem}.txt").write_text(text, encoding="utf-8")
+    # Canonical export is Markdown only.
     (doc_out / f"{stem}.md").write_text(f"# {stem}\n\n{text}\n", encoding="utf-8")
     (doc_out / f"{stem}.provenance.json").write_text(json.dumps(asdict(prov), indent=2), encoding="utf-8")
 

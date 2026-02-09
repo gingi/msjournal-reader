@@ -102,11 +102,17 @@ def main() -> None:
         if not m:
             continue
         page = m.group(1)
-        hp = hyp_dir / f"page_{page}.txt"
+        hp = hyp_dir / f"page_{page}.md"
         if not hp.exists():
             continue
         gold_norm = normalize_for_wer(gp.read_text(encoding="utf-8", errors="replace"))
-        hyp_norm = normalize_for_wer(hp.read_text(encoding="utf-8", errors="replace"))
+        hyp_md = hp.read_text(encoding="utf-8", errors="replace")
+        lines = hyp_md.splitlines()
+        if lines and lines[0].lstrip().startswith("# Page"):
+            hyp_raw = "\n".join(lines[1:])
+        else:
+            hyp_raw = hyp_md
+        hyp_norm = normalize_for_wer(hyp_raw)
         pairs.append(Pair(page=page, gold_norm=gold_norm, hyp_norm=hyp_norm))
 
     if not pairs:

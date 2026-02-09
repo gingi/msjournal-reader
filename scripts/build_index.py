@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Build (or incrementally update) a lightweight search index over exported journal text.
+"""Build (or incrementally update) a lightweight search index over exported journal pages.
 
-Goal: optimize agent-style querying without loading giant markdown files.
+Philosophy:
+- Canonical identity is (doc, page). This always exists.
+- Dates are optional metadata (nullable) because some journals have no dates or different formats.
 
-- Indexes per-page exported text files: <exports-base>/<doc>/page_XXXX.txt
-- Extracts date (from the header), a time key (first HH:MM), and stores a short snippet.
-- Stores an FTS (full-text search) table for quick keyword search.
-- Stores metadata so you can filter by date range and jump back to the original file.
+Inputs:
+- <exports-base>/<doc>/page_XXXX.md
+
+The index stores:
+- pages: metadata per page (doc, page, path, mtime_ns, optional date)
+- pages_fts: full-text search over content
 
 Usage:
   PYTHONPATH=. python3 scripts/build_index.py \
@@ -26,98 +30,25 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-MONTHS = {
-    "january": 1,
-    "february": 2,
-    "march": 3,
-    "april": 4,
-    "may": 5,
-    "june": 6,
-    "july": 7,
-    "august": 8,
-    "september": 9,
-    "october": 10,
-    "november": 11,
-    "december": 12,
-}
+from msjournal_reader.date.parsers import parse_dow_month_day_year
+from msjournal_reader.date.repair import candidate_to_date
 
-DATE_LINE_RE = re.compile(
-    r"^(?P<dow>monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*,?\s+"
-    r"(?P<month>january|february|march|april|may|june|july|august|september|october|november|december)\s+"
-    r"(?P<day>\d{1,2})\s*,?\s+(?P<year>\d{4})\s*$",
-    re.IGNORECASE,
-)
-
+PAGE_RE = re.compile(r"(?:page|pdfpage)_(\d{4})")
 TIME_RE = re.compile(r"\b(?P<h>\d{1,2}):(?P<m>\d{2})\b")
 
 
 @dataclass(frozen=True)
 class Parsed:
-    d: date
+    d: date | None
     time_key: int
     snippet: str
-
-
-def _fix_date_by_dow(d: date, dow: str, *, max_delta_days: int = 3) -> date:
-    """Heuristic: if the handwritten day-of-week doesn't match the numeric date,
-    adjust to the nearest date within +/- max_delta_days that *does* match.
-
-    This catches common human errors like writing "Monday" on a Tuesday and vice versa.
-    """
-
-    dow = dow.strip().lower()
-    want = {
-        "monday": 0,
-        "tuesday": 1,
-        "wednesday": 2,
-        "thursday": 3,
-        "friday": 4,
-        "saturday": 5,
-        "sunday": 6,
-    }.get(dow)
-    if want is None:
-        return d
-
-    if d.weekday() == want:
-        return d
-
-    candidates: list[tuple[int, date]] = []
-    for delta in range(-max_delta_days, max_delta_days + 1):
-        if delta == 0:
-            continue
-        dd = d.fromordinal(d.toordinal() + delta)
-        if dd.weekday() == want:
-            candidates.append((delta, dd))
-
-    if not candidates:
-        return d
-
-    # Prefer the smallest absolute change; break ties by preferring the past (negative delta)
-    candidates.sort(key=lambda x: (abs(x[0]), x[0] > 0))
-    return candidates[0][1]
-
-
-def parse_date(text: str) -> date | None:
-    for line in text.splitlines()[:6]:
-        m = DATE_LINE_RE.match(line.strip())
-        if not m:
-            continue
-        y = int(m.group("year"))
-        mo = MONTHS[m.group("month").lower()]
-        da = int(m.group("day"))
-        d = date(y, mo, da)
-        d = _fix_date_by_dow(d, str(m.group("dow")))
-        return d
-    return None
 
 
 def parse_time_key(text: str) -> int:
     for line in text.splitlines()[:16]:
         m = TIME_RE.search(line)
         if m:
-            h = int(m.group("h"))
-            mi = int(m.group("m"))
-            return h * 60 + mi
+            return int(m.group("h")) * 60 + int(m.group("m"))
     return 0
 
 
@@ -128,10 +59,22 @@ def make_snippet(text: str, max_chars: int) -> str:
     return s[: max_chars - 1].rstrip() + "…"
 
 
-def parse(text: str, *, max_snippet_chars: int) -> Parsed | None:
-    d = parse_date(text)
-    if not d:
-        return None
+def _read_page_markdown(p: Path) -> str:
+    md = p.read_text(encoding="utf-8", errors="replace").strip()
+    if not md:
+        return ""
+    lines = md.splitlines()
+    if lines and lines[0].lstrip().startswith("# Page"):
+        rest = lines[1:]
+        while rest and not rest[0].strip():
+            rest = rest[1:]
+        return "\n".join(rest).strip()
+    return md
+
+
+def parse(text: str, *, max_snippet_chars: int) -> Parsed:
+    cand = parse_dow_month_day_year(text.splitlines()[:10])
+    d = candidate_to_date(cand) if cand else None
     tk = parse_time_key(text)
     snip = make_snippet(text, max_snippet_chars)
     return Parsed(d=d, time_key=tk, snippet=snip)
@@ -143,17 +86,16 @@ def init_db(con: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS pages (
           path TEXT PRIMARY KEY,
           mtime_ns INTEGER NOT NULL,
-          date TEXT NOT NULL,
-          time_key INTEGER NOT NULL,
-          year INTEGER NOT NULL,
           doc TEXT NOT NULL,
           page INTEGER NOT NULL,
+          date TEXT,              -- nullable ISO date
+          year INTEGER,           -- nullable
+          time_key INTEGER NOT NULL,
           snippet TEXT NOT NULL
         );
         """
     )
 
-    # FTS over full page content; store path so we can map back.
     con.execute(
         """
         CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts
@@ -161,8 +103,24 @@ def init_db(con: sqlite3.Connection) -> None:
         """
     )
 
+    con.execute("CREATE INDEX IF NOT EXISTS idx_pages_doc_page ON pages(doc, page);")
     con.execute("CREATE INDEX IF NOT EXISTS idx_pages_date ON pages(date);")
     con.execute("CREATE INDEX IF NOT EXISTS idx_pages_year ON pages(year);")
+
+
+def _schema_version_ok(con: sqlite3.Connection) -> bool:
+    # Detect whether the existing 'pages' table has the nullable date column.
+    try:
+        cols = [r[1] for r in con.execute("PRAGMA table_info(pages);").fetchall()]
+    except sqlite3.OperationalError:
+        return True
+    want = {"path", "mtime_ns", "doc", "page", "date", "year", "time_key", "snippet"}
+    return set(cols) >= want
+
+
+def reset_db(con: sqlite3.Connection) -> None:
+    con.execute("DROP TABLE IF EXISTS pages;")
+    con.execute("DROP TABLE IF EXISTS pages_fts;")
 
 
 def upsert(
@@ -177,30 +135,29 @@ def upsert(
 ) -> None:
     con.execute(
         """
-        INSERT INTO pages(path, mtime_ns, date, time_key, year, doc, page, snippet)
+        INSERT INTO pages(path, mtime_ns, doc, page, date, year, time_key, snippet)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(path) DO UPDATE SET
           mtime_ns=excluded.mtime_ns,
-          date=excluded.date,
-          time_key=excluded.time_key,
-          year=excluded.year,
           doc=excluded.doc,
           page=excluded.page,
+          date=excluded.date,
+          year=excluded.year,
+          time_key=excluded.time_key,
           snippet=excluded.snippet;
         """,
         (
             path,
             int(mtime_ns),
-            parsed.d.isoformat(),
-            int(parsed.time_key),
-            int(parsed.d.year),
             doc,
             int(page),
+            parsed.d.isoformat() if parsed.d else None,
+            int(parsed.d.year) if parsed.d else None,
+            int(parsed.time_key),
             parsed.snippet,
         ),
     )
 
-    # Replace into FTS (delete then insert by path).
     con.execute("DELETE FROM pages_fts WHERE path = ?", (path,))
     con.execute("INSERT INTO pages_fts(path, content) VALUES (?, ?)", (path, content))
 
@@ -213,7 +170,12 @@ def main() -> None:
     ap.add_argument(
         "--force",
         action="store_true",
-        help="Re-parse and upsert all non-empty pages even if mtime_ns is unchanged (useful after parser changes).",
+        help="Re-parse and upsert all non-empty pages even if mtime_ns is unchanged.",
+    )
+    ap.add_argument(
+        "--reset",
+        action="store_true",
+        help="Drop and recreate tables before indexing.",
     )
     args = ap.parse_args()
 
@@ -221,80 +183,74 @@ def main() -> None:
     db_path = Path(args.db)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    con = sqlite3.connect(str(db_path))
-    init_db(con)
-
-    # Track paths present now so we can delete removed entries.
-    seen_paths: set[str] = set()
-
-    total = 0
     updated = 0
+    seen = 0
 
-    for doc_dir in sorted([p for p in exports_base.iterdir() if p.is_dir()]):
-        if doc_dir.name in {"yearly", "index"}:
-            continue
+    with sqlite3.connect(str(db_path)) as con:
+        con.row_factory = sqlite3.Row
 
-        for page_path in sorted(doc_dir.glob("page_*.txt")):
-            pstr = str(page_path)
-            seen_paths.add(pstr)
-            st = page_path.stat()
-            mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
+        if args.reset:
+            reset_db(con)
 
-            # Determine if file is indexable
-            indexable = True
-            text = None
-            parsed = None
-            
-            if st.st_size == 0:
-                indexable = False
-            else:
-                text = page_path.read_text(encoding="utf-8", errors="replace").strip()
-                if not text:
-                    indexable = False
-                else:
-                    parsed = parse(text, max_snippet_chars=int(args.max_snippet_chars))
-                    if not parsed:
-                        indexable = False
+        init_db(con)
 
-            # If not indexable, delete any existing entries
-            if not indexable:
-                con.execute("DELETE FROM pages WHERE path = ?", (pstr,))
-                con.execute("DELETE FROM pages_fts WHERE path = ?", (pstr,))
+        if not _schema_version_ok(con):
+            reset_db(con)
+            init_db(con)
+
+        # Existing mtimes for incremental update
+        existing: dict[str, int] = {}
+        for r in con.execute("SELECT path, mtime_ns FROM pages;").fetchall():
+            existing[str(r["path"])] = int(r["mtime_ns"])
+
+        for doc_dir in sorted([p for p in exports_base.iterdir() if p.is_dir()]):
+            if doc_dir.name in {"yearly", "index"}:
                 continue
-
-            if not args.force:
-                row = con.execute("SELECT mtime_ns FROM pages WHERE path = ?", (pstr,)).fetchone()
-                if row and int(row[0]) == mtime_ns:
-                    total += 1
+            for page_path in sorted(doc_dir.glob("*.md")):
+                if page_path.name == "combined.md":
+                    continue
+                try:
+                    st = page_path.stat()
+                except FileNotFoundError:
+                    continue
+                if st.st_size == 0:
                     continue
 
-            m = re.search(r"page_(\d{4})", page_path.stem)
-            page_num = int(m.group(1)) if m else 0
+                content = _read_page_markdown(page_path)
+                if not content:
+                    continue
 
-            upsert(
-                con,
-                path=pstr,
-                mtime_ns=mtime_ns,
-                parsed=parsed,
-                doc=doc_dir.name,
-                page=page_num,
-                content=text,
-            )
-            updated += 1
-            total += 1
+                m = PAGE_RE.search(page_path.stem)
+                page_num = int(m.group(1)) if m else 0
 
-    # delete missing
-    cur = con.execute("SELECT path FROM pages")
-    to_delete = [r[0] for r in cur.fetchall() if r[0] not in seen_paths]
-    for p in to_delete:
-        con.execute("DELETE FROM pages WHERE path = ?", (p,))
-        con.execute("DELETE FROM pages_fts WHERE path = ?", (p,))
+                key = str(page_path)
+                seen += 1
 
-    con.commit()
-    con.close()
+                if not args.force and key in existing and existing[key] == int(st.st_mtime_ns):
+                    continue
+
+                parsed = parse(content, max_snippet_chars=int(args.max_snippet_chars))
+                upsert(
+                    con,
+                    path=key,
+                    mtime_ns=int(st.st_mtime_ns),
+                    parsed=parsed,
+                    doc=doc_dir.name,
+                    page=page_num,
+                    content=content,
+                )
+                updated += 1
+
+        # Delete records for files that no longer exist
+        for path in list(existing.keys()):
+            if not os.path.exists(path):
+                con.execute("DELETE FROM pages WHERE path = ?", (path,))
+                con.execute("DELETE FROM pages_fts WHERE path = ?", (path,))
+
+        con.commit()
 
     print(f"OK: index at {db_path}")
-    print(f"pages_total_seen={total} updated={updated} deleted={len(to_delete)}")
+    print(f"pages_total_seen={seen} updated={updated}")
 
 
 if __name__ == "__main__":

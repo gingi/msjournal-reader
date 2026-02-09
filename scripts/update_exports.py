@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Incrementally export Microsoft Journal .ink files and update derived artifacts.
 
-- Skips pages already exported (non-empty page_XXXX.txt)
-- Rebuilds combined.txt/combined.md per journal
+- Skips pages already exported (non-empty page_XXXX.md)
+- Rebuilds combined.md per journal
 - Rebuilds yearly markdown files
 - Updates the SQLite FTS index
 
@@ -40,6 +40,34 @@ def load_config(p: Path) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def _read_page_markdown_body(p: Path) -> str:
+    """Return the OCR body from a per-page markdown export."""
+    raw = p.read_text(encoding="utf-8", errors="replace")
+    lines = raw.splitlines()
+    if lines and lines[0].lstrip().startswith("# Page"):
+        body = "\n".join(lines[1:]).lstrip("\n")
+    else:
+        body = raw
+    return body.strip()
+
+
+def _is_effectively_empty_page_export(p: Path) -> bool:
+    """Treat placeholder/empty exports as empty so we can retry OCR."""
+    try:
+        body = _read_page_markdown_body(p)
+    except FileNotFoundError:
+        return True
+
+    if not body:
+        return True
+
+    # Legacy placeholder used by some pipelines
+    if body.lower().startswith("(see attached image"):
+        return True
+
+    return False
+
+
 def iter_pages(con: sqlite3.Connection):
     """Iterate over pages using an existing database connection."""
     cur = con.cursor()
@@ -62,24 +90,19 @@ def get_png_blob(con: sqlite3.Connection, page_id: bytes) -> bytes | None:
 
 
 def write_outputs(doc_out: Path, page_order: int, text: str) -> None:
-    (doc_out / f"page_{page_order:04d}.txt").write_text(text, encoding="utf-8")
+    # Canonical per-page export is Markdown only.
     (doc_out / f"page_{page_order:04d}.md").write_text(f"# Page {page_order}\n\n{text}\n", encoding="utf-8")
 
 
 def rebuild_combined(doc_out: Path) -> None:
-    parts_txt: list[str] = []
     parts_md: list[str] = []
 
-    for p in sorted(doc_out.glob("page_*.txt")):
+    for p in sorted(doc_out.glob("page_*.md")):
         t = p.read_text(encoding="utf-8", errors="replace").strip()
         if not t:
             continue
-        m = re.search(r"page_(\d{4})", p.stem)
-        page = int(m.group(1)) if m else 0
-        parts_txt.append(t)
-        parts_md.append(f"# Page {page}\n\n{t}\n")
+        parts_md.append(t + "\n")
 
-    (doc_out / "combined.txt").write_text("\n\n".join(parts_txt).strip() + "\n", encoding="utf-8")
     (doc_out / "combined.md").write_text("\n".join(parts_md).strip() + "\n", encoding="utf-8")
 
 
@@ -131,13 +154,13 @@ def main() -> None:
             con.row_factory = sqlite3.Row
 
             for page_id, page_order in iter_pages(con):
-                out_txt = doc_out / f"page_{page_order:04d}.txt"
-                if out_txt.exists() and out_txt.stat().st_size > 0:
+                out_md = doc_out / f"page_{page_order:04d}.md"
+                if out_md.exists() and out_md.stat().st_size > 0 and not _is_effectively_empty_page_export(out_md):
                     continue
 
                 png = get_png_blob(con, page_id)
                 if not png:
-                    out_txt.write_text("", encoding="utf-8")
+                    out_md.write_text("", encoding="utf-8")
                     continue
 
                 text = engine.ocr_png_bytes(png)

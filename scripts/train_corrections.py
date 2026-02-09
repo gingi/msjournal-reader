@@ -5,7 +5,7 @@ NOT ML. Output: JSON mapping of "wrong" -> "right" (lowercased).
 
 Assumption: filenames match like:
   gold: journal-feb-2026_page-0001.txt
-  hyp : page_0001.txt   (inside --hyp-dir)
+  hyp : page_0001.md   (inside --hyp-dir)
 """
 
 from __future__ import annotations
@@ -63,12 +63,18 @@ def main() -> None:
         page = m.group(1)
         if page in exclude:
             continue
-        hyp_path = hyp_dir / f"page_{page}.txt"
+        hyp_path = hyp_dir / f"page_{page}.md"
         if not hyp_path.exists():
             continue
 
         gold_raw = gold_path.read_text(encoding="utf-8", errors="replace")
-        hyp_raw = hyp_path.read_text(encoding="utf-8", errors="replace")
+        hyp_md = hyp_path.read_text(encoding="utf-8", errors="replace")
+        # hyp is a per-page markdown export; strip the wrapper heading if present
+        lines = hyp_md.splitlines()
+        if lines and lines[0].lstrip().startswith("# Page"):
+            hyp_raw = "\n".join(lines[1:])
+        else:
+            hyp_raw = hyp_md
 
         gold = normalize_for_training(gold_raw)
         hyp = normalize_for_training(hyp_raw)
