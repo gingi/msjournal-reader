@@ -39,7 +39,7 @@ def main() -> None:
         "SELECT p.date, p.time_key, p.doc, p.page, p.path, p.snippet "
         "FROM pages_fts f "
         "JOIN pages p ON p.path = f.path "
-        "WHERE pages_fts MATCH ?" + where_sql + " "
+        "WHERE f MATCH ?" + where_sql + " "
         "ORDER BY p.date ASC, p.time_key ASC "
         "LIMIT ?"
     )
