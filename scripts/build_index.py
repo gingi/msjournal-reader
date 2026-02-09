@@ -194,21 +194,31 @@ def main() -> None:
             st = page_path.stat()
             mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
 
-            # Skip empty pages; but still count them in seen for deletion handling.
+            # Determine if file is indexable
+            indexable = True
+            text = None
+            parsed = None
+            
             if st.st_size == 0:
+                indexable = False
+            else:
+                text = page_path.read_text(encoding="utf-8", errors="replace").strip()
+                if not text:
+                    indexable = False
+                else:
+                    parsed = parse(text, max_snippet_chars=int(args.max_snippet_chars))
+                    if not parsed:
+                        indexable = False
+
+            # If not indexable, delete any existing entries
+            if not indexable:
+                con.execute("DELETE FROM pages WHERE path = ?", (pstr,))
+                con.execute("DELETE FROM pages_fts WHERE path = ?", (pstr,))
                 continue
 
             row = con.execute("SELECT mtime_ns FROM pages WHERE path = ?", (pstr,)).fetchone()
             if row and int(row[0]) == mtime_ns:
                 total += 1
-                continue
-
-            text = page_path.read_text(encoding="utf-8", errors="replace").strip()
-            if not text:
-                continue
-
-            parsed = parse(text, max_snippet_chars=int(args.max_snippet_chars))
-            if not parsed:
                 continue
 
             m = re.search(r"page_(\d{4})", page_path.stem)
