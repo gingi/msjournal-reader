@@ -40,23 +40,19 @@ def load_config(p: Path) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def iter_pages(ink_path: Path):
-    con = sqlite3.connect(str(ink_path))
-    con.row_factory = sqlite3.Row
+def iter_pages(con: sqlite3.Connection):
+    """Iterate over pages using an existing database connection."""
     cur = con.cursor()
     cur.execute("SELECT id, page_order FROM pages ORDER BY page_order")
     for row in cur.fetchall():
         yield row["id"], int(row["page_order"])
-    con.close()
 
 
-def get_png_blob(ink_path: Path, page_id: bytes) -> bytes | None:
-    con = sqlite3.connect(str(ink_path))
-    con.row_factory = sqlite3.Row
+def get_png_blob(con: sqlite3.Connection, page_id: bytes) -> bytes | None:
+    """Retrieve PNG blob using an existing database connection."""
     cur = con.cursor()
     cur.execute("SELECT bytes FROM blobs WHERE owner_id = ? AND ordinal = 0", (page_id,))
     r = cur.fetchone()
-    con.close()
     if not r or r[0] is None:
         return None
     b = bytes(r[0])
@@ -130,22 +126,26 @@ def main() -> None:
         doc_out = exports_base / slug(ink.stem)
         doc_out.mkdir(parents=True, exist_ok=True)
 
-        for page_id, page_order in iter_pages(ink):
-            out_txt = doc_out / f"page_{page_order:04d}.txt"
-            if out_txt.exists() and out_txt.stat().st_size > 0:
-                continue
+        # Use a single connection per journal file
+        with sqlite3.connect(str(ink)) as con:
+            con.row_factory = sqlite3.Row
 
-            png = get_png_blob(ink, page_id)
-            if not png:
-                out_txt.write_text("", encoding="utf-8")
-                continue
+            for page_id, page_order in iter_pages(con):
+                out_txt = doc_out / f"page_{page_order:04d}.txt"
+                if out_txt.exists() and out_txt.stat().st_size > 0:
+                    continue
 
-            text = engine.ocr_png_bytes(png)
-            text = apply_corrections(text, corr_path)
+                png = get_png_blob(con, page_id)
+                if not png:
+                    out_txt.write_text("", encoding="utf-8")
+                    continue
 
-            write_outputs(doc_out, page_order, text)
-            total_new += 1
-            print(f"OK {ink.name}: page {page_order:04d}")
+                text = engine.ocr_png_bytes(png)
+                text = apply_corrections(text, corr_path)
+
+                write_outputs(doc_out, page_order, text)
+                total_new += 1
+                print(f"OK {ink.name}: page {page_order:04d}")
 
         rebuild_combined(doc_out)
 
