@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
 from .types import DateCandidate
 
@@ -14,11 +13,6 @@ DATE_LINE_RE = re.compile(
 )
 
 DOW_ONLY_RE = re.compile(r"^(?P<dow>monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*,?\s*$", re.IGNORECASE)
-
-
-@dataclass(frozen=True)
-class ParseResult:
-    candidate: DateCandidate
 
 
 def parse_dow_month_day_year(lines: list[str]) -> DateCandidate | None:
