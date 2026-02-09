@@ -129,7 +129,7 @@ def main() -> None:
         # Use a single connection per journal file
         with sqlite3.connect(str(ink)) as con:
             con.row_factory = sqlite3.Row
-            
+
             for page_id, page_order in iter_pages(con):
                 out_txt = doc_out / f"page_{page_order:04d}.txt"
                 if out_txt.exists() and out_txt.stat().st_size > 0:
