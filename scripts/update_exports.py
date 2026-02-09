@@ -152,24 +152,34 @@ def main() -> None:
     # Rebuild yearly markdown
     import runpy, sys
 
-    sys.argv = [
-        "build_year_exports.py",
-        "--exports-base",
-        str(exports_base),
-        "--out-dir",
-        str(yearly_out),
-    ]
-    runpy.run_path(str(Path(__file__).resolve().parent / "build_year_exports.py"), run_name="__main__")
+    original_argv = list(sys.argv)
+    try:
+        sys.argv = [
+            "build_year_exports.py",
+            "--exports-base",
+            str(exports_base),
+            "--out-dir",
+            str(yearly_out),
+        ]
+        runpy.run_path(
+            str(Path(__file__).resolve().parent / "build_year_exports.py"),
+            run_name="__main__",
+        )
 
-    # Rebuild/update index
-    sys.argv = [
-        "build_index.py",
-        "--exports-base",
-        str(exports_base),
-        "--db",
-        str(index_db),
-    ]
-    runpy.run_path(str(Path(__file__).resolve().parent / "build_index.py"), run_name="__main__")
+        # Rebuild/update index
+        sys.argv = [
+            "build_index.py",
+            "--exports-base",
+            str(exports_base),
+            "--db",
+            str(index_db),
+        ]
+        runpy.run_path(
+            str(Path(__file__).resolve().parent / "build_index.py"),
+            run_name="__main__",
+        )
+    finally:
+        sys.argv = original_argv
 
     print(f"DONE: exported new_pages={total_new}")
 
