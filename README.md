@@ -9,15 +9,20 @@ It’s structured to allow additional OCR providers later (see `msjournal_reader
 
 ### 1) Install dependencies
 
-Recommended (venv):
+Recommended (uv):
+
+```bash
+uv venv --clear .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+```
+
+Or using the standard library venv:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
-
-If you see `externally-managed-environment` (PEP 668), use a venv (above) or a tool like `pipx`.
 
 ### 2) Configure Azure
 
@@ -38,8 +43,8 @@ PYTHONPATH=. python3 scripts/ink_to_text.py \
 ```
 
 Outputs:
-- `out/<ink-stem>/page_0000.txt` (+ `.md`)
-- `out/<ink-stem>/combined.txt` (+ `.md`)
+- `out/<ink-stem>/page_0000.md`
+- `out/<ink-stem>/combined.md`
 
 ## Corrections (post-OCR)
 
@@ -52,6 +57,8 @@ For personal corrections, store them in **`user_corrections/local/`** (gitignore
 ## Per-user neural post-corrector (optional)
 
 Train a small seq2seq model that rewrites OCR text into your preferred style.
+
+Note: OCR outputs are page markdown (`page_XXXX.md`). Training utilities strip the `# Page N` wrapper automatically.
 
 Install optional deps:
 
@@ -80,9 +87,11 @@ PYTHONPATH=. python3 scripts/ink_to_text.py \
 
 Guardrail: by default, `--postcorrector-model` must live under `user_corrections/local/` to reduce the chance of accidentally committing weights. Override with `--allow-nonlocal-postcorrector`.
 
-## Yearly markdown exports
+## Grouped markdown exports
 
-Create a chronologically sorted markdown file per year from exported `page_*.txt`:
+Build grouped markdown files from exported page markdown under `exports-base`.
+
+By default, the exporter groups by date when dates are detectable, and falls back to page-based grouping.
 
 ```bash
 PYTHONPATH=. python3 scripts/build_year_exports.py \
@@ -90,12 +99,18 @@ PYTHONPATH=. python3 scripts/build_year_exports.py \
   --out-dir /path/to/exports/msjournal-reader/yearly
 ```
 
+Common options:
+- `--group-by auto|date|page` (default: `auto`)
+- `--min-year 2024` / `--max-year 2026`
+- `--fill-missing-days` (optional)
+
 Outputs:
-- `yearly/journal-2025.md`, `yearly/journal-2026.md`, ...
+- Date-grouped: `yearly/journal-YYYY.md`
+- Page-grouped: `yearly/journal-pages-<doc>.md`
 
 ## Lightweight search index (SQLite FTS)
 
-Build/update an index for fast keyword search + date filtering without loading giant year files:
+Build/update an index for fast keyword search (date filtering available when dates are parseable):
 
 ```bash
 PYTHONPATH=. python3 scripts/build_index.py \
