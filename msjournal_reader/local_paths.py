@@ -18,8 +18,14 @@ def is_under(path: Path, root: Path, *, resolve_symlinks: bool = True) -> bool:
 
     try:
         return p2.is_relative_to(r2)  # py3.9+
-    except Exception:
-        return str(p2).startswith(str(r2) + "/")
+    except AttributeError:
+        # Fallback for older Python (should not happen with requires-python >= 3.9)
+        # Use path parts comparison to be platform-independent
+        try:
+            p2.relative_to(r2)
+            return True
+        except ValueError:
+            return False
 
 
 def require_under(
