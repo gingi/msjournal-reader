@@ -58,6 +58,45 @@ class Parsed:
     snippet: str
 
 
+def _fix_date_by_dow(d: date, dow: str, *, max_delta_days: int = 3) -> date:
+    """Heuristic: if the handwritten day-of-week doesn't match the numeric date,
+    adjust to the nearest date within +/- max_delta_days that *does* match.
+
+    This catches common human errors like writing "Monday" on a Tuesday and vice versa.
+    """
+
+    dow = dow.strip().lower()
+    want = {
+        "monday": 0,
+        "tuesday": 1,
+        "wednesday": 2,
+        "thursday": 3,
+        "friday": 4,
+        "saturday": 5,
+        "sunday": 6,
+    }.get(dow)
+    if want is None:
+        return d
+
+    if d.weekday() == want:
+        return d
+
+    candidates: list[tuple[int, date]] = []
+    for delta in range(-max_delta_days, max_delta_days + 1):
+        if delta == 0:
+            continue
+        dd = d.fromordinal(d.toordinal() + delta)
+        if dd.weekday() == want:
+            candidates.append((delta, dd))
+
+    if not candidates:
+        return d
+
+    # Prefer the smallest absolute change; break ties by preferring the past (negative delta)
+    candidates.sort(key=lambda x: (abs(x[0]), x[0] > 0))
+    return candidates[0][1]
+
+
 def parse_date(text: str) -> date | None:
     for line in text.splitlines()[:6]:
         m = DATE_LINE_RE.match(line.strip())
@@ -66,7 +105,9 @@ def parse_date(text: str) -> date | None:
         y = int(m.group("year"))
         mo = MONTHS[m.group("month").lower()]
         da = int(m.group("day"))
-        return date(y, mo, da)
+        d = date(y, mo, da)
+        d = _fix_date_by_dow(d, str(m.group("dow")))
+        return d
     return None
 
 
@@ -169,6 +210,11 @@ def main() -> None:
     ap.add_argument("--exports-base", required=True)
     ap.add_argument("--db", required=True)
     ap.add_argument("--max-snippet-chars", type=int, default=400)
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-parse and upsert all non-empty pages even if mtime_ns is unchanged (useful after parser changes).",
+    )
     args = ap.parse_args()
 
     exports_base = Path(args.exports_base)
@@ -216,10 +262,11 @@ def main() -> None:
                 con.execute("DELETE FROM pages_fts WHERE path = ?", (pstr,))
                 continue
 
-            row = con.execute("SELECT mtime_ns FROM pages WHERE path = ?", (pstr,)).fetchone()
-            if row and int(row[0]) == mtime_ns:
-                total += 1
-                continue
+            if not args.force:
+                row = con.execute("SELECT mtime_ns FROM pages WHERE path = ?", (pstr,)).fetchone()
+                if row and int(row[0]) == mtime_ns:
+                    total += 1
+                    continue
 
             m = re.search(r"page_(\d{4})", page_path.stem)
             page_num = int(m.group(1)) if m else 0
