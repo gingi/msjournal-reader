@@ -1,9 +1,10 @@
 ---
-name: msjournal-reader
-description: Convert Microsoft Journal .ink files into text using Azure AI Vision Read OCR. Use when extracting or exporting handwriting notes from Microsoft Journal (.ink) into per-page Markdown, optionally applying a user corrections map; also use when rebuilding grouped exports/search index or retraining/updating corrections from gold transcriptions.
+name: journal-reader
+description: Convert journal handwriting exports (Microsoft Journal .ink today) into per-page Markdown via OCR (Azure AI Vision Read) + optional corrections.
+metadata: {"openclaw":{"requires":{"bins":["python3"],"env":["AZURE_VISION_ENDPOINT","AZURE_VISION_KEY"]},"primaryEnv":"AZURE_VISION_KEY"}}
 ---
 
-# msjournal-reader
+# journal-reader
 
 ## Quick start
 
