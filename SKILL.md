@@ -1,6 +1,6 @@
 ---
 name: msjournal-reader
-description: Convert Microsoft Journal .ink files into text using Azure AI Vision Read OCR. Use when extracting or exporting handwriting notes from Microsoft Journal (.ink) into .txt/.md (per-page + combined), optionally applying a user corrections map; also use when retraining/updating corrections from gold transcriptions.
+description: Convert Microsoft Journal .ink files into text using Azure AI Vision Read OCR. Use when extracting or exporting handwriting notes from Microsoft Journal (.ink) into per-page Markdown, optionally applying a user corrections map; also use when rebuilding grouped exports/search index or retraining/updating corrections from gold transcriptions.
 ---
 
 # msjournal-reader
@@ -23,8 +23,8 @@ python3 scripts/ink_to_text.py \
 ```
 
 Outputs:
-- `./out/<ink-stem>/page_0000.txt` (+ `.md`)
-- `./out/<ink-stem>/combined.txt` (+ `.md`)
+- `./out/<ink-stem>/page_0000.md`
+- `./out/<ink-stem>/combined.md`
 
 ## Corrections (post-OCR)
 
@@ -42,6 +42,8 @@ Train a small seq2seq model that rewrites OCR text (hyp) into your preferred tra
 ```bash
 pip install -r requirements-ml.txt
 ```
+
+Note: OCR outputs are `page_XXXX.md`. Training utilities strip the `# Page N` wrapper automatically.
 
 - Train:
 

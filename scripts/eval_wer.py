@@ -2,7 +2,7 @@
 """Evaluate OCR output against a gold transcription using WER.
 
 Usage:
-  python3 scripts/eval_wer.py --gold gold/file.txt --hyp out/.../page_0000.txt
+  python3 scripts/eval_wer.py --gold gold/file.txt --hyp out/.../page_0000.md
 """
 
 from __future__ import annotations
@@ -40,7 +40,11 @@ def normalize_for_wer(s: str) -> str:
 
 
 def read_text(p: Path) -> str:
-    return p.read_text(encoding="utf-8", errors="replace")
+    raw = p.read_text(encoding="utf-8", errors="replace")
+    lines = raw.splitlines()
+    if lines and lines[0].lstrip().startswith("# Page"):
+        return "\n".join(lines[1:]).lstrip("\n")
+    return raw
 
 
 def main() -> None:

@@ -64,7 +64,6 @@ def process_ink(
     pages = extract_pages_png(ink_path)
 
     combined_md_parts: list[str] = []
-    combined_txt_parts: list[str] = []
 
     for page in pages:
         text = engine.ocr_png_bytes(page.png_bytes)
@@ -72,19 +71,14 @@ def process_ink(
         if postcorrector:
             text = postcorrector.apply(text)
 
-        page_txt = doc_out / f"page_{page.order:04d}.txt"
         page_md = doc_out / f"page_{page.order:04d}.md"
 
-        page_txt.write_text(text, encoding="utf-8")
         page_md.write_text(f"# Page {page.order}\n\n{text}\n", encoding="utf-8")
 
-        combined_txt_parts.append(text.rstrip() + "\n")
         combined_md_parts.append(f"# Page {page.order}\n\n{text}\n")
 
-    combined_txt_path = doc_out / "combined.txt"
     combined_md_path = doc_out / "combined.md"
 
-    combined_txt_path.write_text("\n".join([t.strip() for t in combined_txt_parts]).strip() + "\n", encoding="utf-8")
     combined_md_path.write_text("\n".join(combined_md_parts).strip() + "\n", encoding="utf-8")
 
     return combined_md_path
@@ -130,6 +124,8 @@ def main() -> None:
         repo_root = Path(__file__).resolve().parents[1]
         allowed = (repo_root / "user_corrections" / "local").resolve()
         try:
+            # Allow symlinks under user_corrections/local/ so you can keep the
+            # actual model directory on OneDrive and link it back.
             pc_model = require_under(
                 pc_model,
                 allowed,
@@ -137,6 +133,7 @@ def main() -> None:
                     "Refusing to load --postcorrector-model outside user_corrections/local/. "
                     "Move it under user_corrections/local/ (recommended), or pass --allow-nonlocal-postcorrector."
                 ),
+                resolve_symlinks=False,
             )
         except ValueError as e:
             raise SystemExit(str(e))

@@ -5,7 +5,7 @@ This does NOT change the OCR engine. It learns your idiosyncrasies as a rewrite 
 
 Data convention:
 - gold pages: gold/*page-0001*.txt (or page_0001, page-0001, page_0001)
-- hyp pages : <hyp-dir>/page_0001.txt
+- hyp pages : <hyp-dir>/page_0001.md
 
 Example:
   python3 scripts/train_postcorrector_byt5.py \
@@ -38,11 +38,17 @@ def load_pairs(gold_dir: Path, hyp_dir: Path) -> list[dict[str, str]]:
         pid = _page_id(gp.name)
         if not pid:
             continue
-        hp = hyp_dir / f"page_{pid}.txt"
+        hp = hyp_dir / f"page_{pid}.md"
         if not hp.exists():
             continue
         gold = gp.read_text(encoding="utf-8", errors="replace").strip()
-        hyp = hp.read_text(encoding="utf-8", errors="replace").strip()
+        hyp_raw = hp.read_text(encoding="utf-8", errors="replace").strip()
+        # hyp is a per-page markdown export; strip the wrapper heading if present
+        lines = hyp_raw.splitlines()
+        if lines and lines[0].lstrip().startswith("# Page"):
+            hyp = "\n".join(lines[1:]).lstrip("\n").strip()
+        else:
+            hyp = hyp_raw
         if not gold or not hyp:
             continue
         pairs.append({"page": pid, "input": hyp, "target": gold})
@@ -70,7 +76,7 @@ def main() -> None:
 
     pairs = load_pairs(gold_dir, hyp_dir)
     if not pairs:
-        raise SystemExit("No training pairs found. Check gold filenames + hyp-dir/page_XXXX.txt")
+        raise SystemExit("No training pairs found. Check gold filenames + hyp-dir/page_XXXX.md")
 
     # Write dataset snapshot for reproducibility (local path recommended)
     (out_dir / "train_pairs.json").write_text(json.dumps(pairs, indent=2) + "\n", encoding="utf-8")
@@ -105,6 +111,8 @@ def main() -> None:
 
     collator = DataCollatorForSeq2Seq(tokenizer=tok, model=model)
 
+    # transformers v5 removed/renamed some TrainingArguments fields.
+    # Keep args minimal so it works across versions.
     training_args = Seq2SeqTrainingArguments(
         output_dir=str(out_dir / "_runs"),
         num_train_epochs=float(args.epochs),
@@ -113,7 +121,6 @@ def main() -> None:
         gradient_accumulation_steps=4,
         logging_steps=5,
         save_strategy="no",
-        evaluation_strategy="no",
         report_to=[],
         fp16=False,
     )
@@ -123,7 +130,6 @@ def main() -> None:
         args=training_args,
         train_dataset=tds,
         data_collator=collator,
-        tokenizer=tok,
     )
 
     trainer.train()
