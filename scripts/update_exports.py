@@ -72,7 +72,7 @@ def iter_pages(con: sqlite3.Connection):
     """Iterate over pages using an existing database connection."""
     cur = con.cursor()
     cur.execute("SELECT id, page_order FROM pages ORDER BY page_order")
-    for row in cur.fetchall():
+    for row in cur:
         yield row["id"], int(row["page_order"])
 
 

@@ -49,9 +49,13 @@ def main() -> None:
     rows = con.execute(sql, qparams).fetchall()
     for r in rows:
         d, tk, doc, page, path, snip = r
-        hh = int(tk) // 60
-        mm = int(tk) % 60
-        t = f"{hh:02d}:{mm:02d}" if tk else "--:--"
+        if tk is None:
+            t = "--:--"
+        else:
+            tk_int = int(tk)
+            hh = tk_int // 60
+            mm = tk_int % 60
+            t = f"{hh:02d}:{mm:02d}"
         print(f"{d} {t} {doc}/page_{int(page):04d} :: {snip}")
         print(f"  {path}")
 

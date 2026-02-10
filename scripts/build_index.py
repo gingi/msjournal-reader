@@ -40,16 +40,16 @@ TIME_RE = re.compile(r"\b(?P<h>\d{1,2}):(?P<m>\d{2})\b")
 @dataclass(frozen=True)
 class Parsed:
     d: date | None
-    time_key: int
+    time_key: int | None
     snippet: str
 
 
-def parse_time_key(text: str) -> int:
+def parse_time_key(text: str) -> int | None:
     for line in text.splitlines()[:16]:
         m = TIME_RE.search(line)
         if m:
             return int(m.group("h")) * 60 + int(m.group("m"))
-    return 0
+    return None
 
 
 def make_snippet(text: str, max_chars: int) -> str:
@@ -153,7 +153,7 @@ def upsert(
             int(page),
             parsed.d.isoformat() if parsed.d else None,
             int(parsed.d.year) if parsed.d else None,
-            int(parsed.time_key),
+            int(parsed.time_key) if parsed.time_key is not None else None,
             parsed.snippet,
         ),
     )
@@ -223,7 +223,7 @@ def main() -> None:
                 m = PAGE_RE.search(page_path.stem)
                 page_num = int(m.group(1)) if m else 0
 
-                key = str(page_path)
+                key = str(page_path.resolve())
                 seen += 1
 
                 if not args.force and key in existing and existing[key] == int(st.st_mtime_ns):
