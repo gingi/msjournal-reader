@@ -28,6 +28,7 @@ import json
 import os
 import runpy
 import sys
+import time
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -231,7 +232,7 @@ def main() -> None:
         "journals": journal_fps,
         "corrections_map": corr_fp,
         "corrections_model_version": state.get("corrections_model_version"),
-        "last_sync_epoch": int(os.popen("date +%s").read().strip()),
+        "last_sync_epoch": int(time.time()),
         "last_sync_mode": "force" if args.force else "incremental",
     }
     save_state(repo_root, new_state)

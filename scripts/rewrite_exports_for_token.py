@@ -74,7 +74,10 @@ def main() -> None:
         raise SystemExit("Missing --exports-base (or exports_base in --paths-config)")
 
     exports_base = Path(str(exports_base_raw)).expanduser().resolve()
-    corr_path = Path(args.corrections_map).expanduser().resolve()
+    corr_path_raw = Path(args.corrections_map).expanduser()
+    if not corr_path_raw.is_absolute():
+        corr_path_raw = repo_root / corr_path_raw
+    corr_path = corr_path_raw.resolve()
     args.yearly_out = yearly_out_raw
     args.index_db = index_db_raw
     token = str(args.token).strip().lower()

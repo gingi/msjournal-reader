@@ -32,7 +32,6 @@ def _coerce_fts_query(q: str) -> str:
     If it *looks* like a path, treat it as a literal phrase.
     """
     if ("/" in q or "\\" in q) and '"' not in q:
-        q = q.replace('"', '""')
         return f'"{q}"'
     return q
 

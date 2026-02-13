@@ -51,3 +51,46 @@ def extract_pages_png(db_path: Path) -> list[InkPage]:
     con.close()
     out.sort(key=lambda x: x.order)
     return out
+
+
+def extract_single_page_png(db_path: Path, page_order: int) -> InkPage | None:
+    """Extract a single page PNG from a Microsoft Journal .ink file by page_order.
+
+    This is more efficient than extract_pages_png() when you only need one page,
+    as it avoids loading all pages/blobs into memory.
+
+    Returns None if the requested page is not found.
+    """
+    con = sqlite3.connect(str(db_path))
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+
+    # Find the page with the requested page_order
+    cur.execute("SELECT id, page_order FROM pages WHERE page_order = ?", (page_order,))
+    page_row = cur.fetchone()
+
+    if not page_row:
+        con.close()
+        return None
+
+    page_id = page_row["id"]
+    actual_order = page_row["page_order"] if page_row["page_order"] is not None else page_order
+
+    # Fetch the PNG blob for this page
+    cur.execute(
+        "SELECT bytes FROM blobs WHERE owner_id = ? AND ordinal = 0",
+        (page_id,),
+    )
+    blob_row = cur.fetchone()
+    con.close()
+
+    if not blob_row or blob_row[0] is None:
+        return None
+
+    b = blob_row[0]
+    if not (isinstance(b, (bytes, bytearray)) and b[:8] == PNG_MAGIC):
+        return None
+
+    page_id_hex = page_id.hex() if isinstance(page_id, (bytes, bytearray)) else str(page_id)
+    return InkPage(order=int(actual_order), page_id_hex=page_id_hex, png_bytes=bytes(b))
+

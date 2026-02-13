@@ -119,7 +119,7 @@ def main() -> None:
 
     if cmd == "accept":
         if not rest:
-            raise SystemExit("Usage: !jr accept 1|2|3 OR !jr accept <replacement>")
+            raise SystemExit("Usage: jr: accept 1|2|3 OR jr: accept <replacement>")
         # If first arg is 1/2/3, pass that through; else pass the replacement text
         if rest[0] in {"1", "2", "3"} and len(rest) == 1:
             ans = rest[0]

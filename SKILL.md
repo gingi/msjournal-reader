@@ -57,14 +57,14 @@ Rules:
 - After the first accepted correction, start a 1-hour integration timer.
 - If the queue completes, integrate immediately.
 
-If the user replies `!jr image`:
+If the user replies `jr: image`:
 
 - Do **not** ask which item. Use the currently pending item.
 - Do **not** try to fetch/read Slack attachments or ask the user to re-upload anything.
 - Always generate the image locally from the `.ink` source and send it.
 
 Steps:
-1) `cd /home/shiran/src/msjournal-reader`
+1) `cd /home/shiran/src/journal-reader`
 2) Run:
    - `PYTHONPATH=. python3 scripts/chat_review.py image`
      - This prints JSON with `png`, `doc`, `page`, and the exact `example.path` + `example.line` used.

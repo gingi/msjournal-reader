@@ -229,7 +229,7 @@ def cmd_answer(
     state.pop("pending", None)
     save_json(state_path, state)
 
-    return f"Added correction: *{tok}* → *{repl}*. Updating exports/index now…"
+    return f"Added correction: *{tok}* → *{repl}*. Saved; will be integrated into exports/index later."
 
 
 def _slug(s: str) -> str:
@@ -245,7 +245,7 @@ def cmd_image(repo_root: Path, cfg_path: Path, state_path: Path, out_path: Path)
     The JSON includes the exported PNG path plus the exact example context
     (doc/page/line/path) used to select the page.
     """
-    from msjournal_reader.ink import extract_pages_png
+    from msjournal_reader.ink import extract_single_page_png
 
     state = load_json(state_path, default={})
     pending = state.get("pending")
@@ -275,12 +275,7 @@ def cmd_image(repo_root: Path, cfg_path: Path, state_path: Path, out_path: Path)
     if ink_path is None:
         raise SystemExit(f"No .ink matched doc slug={doc}. Check config journals[]")
 
-    pages = extract_pages_png(ink_path)
-    hit = None
-    for p in pages:
-        if int(p.order) == page:
-            hit = p
-            break
+    hit = extract_single_page_png(ink_path, page)
     if hit is None:
         raise SystemExit(f"Page {page} not found in {ink_path}")
 
