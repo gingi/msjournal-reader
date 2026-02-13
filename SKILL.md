@@ -34,6 +34,49 @@ Outputs:
 
 Keep personal corrections out of Git by putting them in `user_corrections/local/` (gitignored).
 
+## Slack DM review protocol (remote Q/A, deterministic commands)
+
+In Slack DM, treat messages containing a `jr:` command as review commands (often preceded by an @mention).
+Anything else is normal chat.
+
+Command handler entrypoint:
+- `PYTHONPATH=. python3 scripts/jr_cmd.py "<raw message>"`
+
+Supported commands:
+- `jr: review` / `jr: next`
+- `jr: accept 1|2|3`
+- `jr: accept <replacement text>`
+- `jr: skip`
+- `jr: image`
+- `jr: stop`
+
+Rules:
+- Always paste the script output verbatim (no emoji-only reactions, no freelancing).
+- Do **not** show items in batch mode.
+- After `accept`/`skip`, do **not** auto-post the next item; tell the user to send `jr: next`.
+- After the first accepted correction, start a 1-hour integration timer.
+- If the queue completes, integrate immediately.
+
+If the user replies `!jr image`:
+
+- Do **not** ask which item. Use the currently pending item.
+- Do **not** try to fetch/read Slack attachments or ask the user to re-upload anything.
+- Always generate the image locally from the `.ink` source and send it.
+
+Steps:
+1) `cd /home/shiran/src/msjournal-reader`
+2) Run:
+   - `PYTHONPATH=. python3 scripts/chat_review.py image`
+     - This prints JSON with `png`, `doc`, `page`, and the exact `example.path` + `example.line` used.
+3) Send the PNG at `png` to Slack as an attachment (prefer replying in the same DM thread).
+4) In the same message, paste:
+   - `doc` + `page`
+   - `example.line`
+
+Cropping:
+- Leave cropping best-effort.
+- Do **not** `pip install` anything at runtime.
+- Our Python env workflows use `uv` (not venv).
 ## Per-user neural post-corrector (optional)
 
 Train a small seq2seq model that rewrites OCR text (hyp) into your preferred transcription style (gold). This is a learnable replacement for maintaining a large explicit correction table.

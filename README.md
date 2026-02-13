@@ -58,6 +58,29 @@ Provide either:
 
 For personal corrections, store them in **`user_corrections/local/`** (gitignored). This directory is a good candidate to keep on a synced drive (e.g., OneDrive) and symlink back into the repo.
 
+### Candidate mining + review loop (systematic fixes)
+
+This repo includes a lightweight workflow to mine likely recurring OCR mistakes and turn them into regex correction rules:
+
+1) Mine candidates from your exported pages:
+
+```bash
+python3 scripts/mine_suspects.py \
+  --exports-base /path/to/exports/msjournal-reader \
+  --out-queue user_corrections/local/review_queue.jsonl \
+  --max-items 20
+```
+
+2) Review the queue interactively and append accepted rules to a regex corrections map:
+
+```bash
+python3 scripts/review_queue.py \
+  --queue user_corrections/local/review_queue.jsonl \
+  --corrections-map user_corrections/local/regex_corrections.json
+```
+
+3) Re-run conversion / exports so the new corrections apply (for example, re-run `scripts/update_exports.py` for your journals).
+
 ## Per-user neural post-corrector (optional)
 
 Train a small seq2seq model that rewrites OCR text into your preferred style.
