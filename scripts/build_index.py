@@ -4,6 +4,7 @@
 Philosophy:
 - Canonical identity is (doc, page). This always exists.
 - Dates are optional metadata (nullable) because some journals have no dates or different formats.
+- We index primarily by *date* (when available) + doc/page. We do NOT store a separate time key.
 
 Inputs:
 - <exports-base>/<doc>/page_XXXX.md
@@ -34,22 +35,12 @@ from msjournal_reader.date.parsers import parse_dow_month_day_year
 from msjournal_reader.date.repair import candidate_to_date
 
 PAGE_RE = re.compile(r"(?:page|pdfpage)_(\d{4})")
-TIME_RE = re.compile(r"\b(?P<h>\d{1,2}):(?P<m>\d{2})\b")
 
 
 @dataclass(frozen=True)
 class Parsed:
     d: date | None
-    time_key: int | None
     snippet: str
-
-
-def parse_time_key(text: str) -> int | None:
-    for line in text.splitlines()[:16]:
-        m = TIME_RE.search(line)
-        if m:
-            return int(m.group("h")) * 60 + int(m.group("m"))
-    return None
 
 
 def make_snippet(text: str, max_chars: int) -> str:
@@ -75,9 +66,8 @@ def _read_page_markdown(p: Path) -> str:
 def parse(text: str, *, max_snippet_chars: int) -> Parsed:
     cand = parse_dow_month_day_year(text.splitlines()[:10])
     d = candidate_to_date(cand) if cand else None
-    tk = parse_time_key(text)
     snip = make_snippet(text, max_snippet_chars)
-    return Parsed(d=d, time_key=tk, snippet=snip)
+    return Parsed(d=d, snippet=snip)
 
 
 def init_db(con: sqlite3.Connection) -> None:
@@ -90,7 +80,6 @@ def init_db(con: sqlite3.Connection) -> None:
           page INTEGER NOT NULL,
           date TEXT,              -- nullable ISO date
           year INTEGER,           -- nullable
-          time_key INTEGER NOT NULL,
           snippet TEXT NOT NULL
         );
         """
@@ -109,12 +98,16 @@ def init_db(con: sqlite3.Connection) -> None:
 
 
 def _schema_version_ok(con: sqlite3.Connection) -> bool:
-    # Detect whether the existing 'pages' table has the nullable date column.
+    """Return True if the existing schema is compatible.
+
+    We intentionally keep this simple: if the required columns aren't present,
+    we trigger a reset.
+    """
     try:
         cols = [r[1] for r in con.execute("PRAGMA table_info(pages);").fetchall()]
     except sqlite3.OperationalError:
         return True
-    want = {"path", "mtime_ns", "doc", "page", "date", "year", "time_key", "snippet"}
+    want = {"path", "mtime_ns", "doc", "page", "date", "year", "snippet"}
     return set(cols) >= want
 
 
@@ -135,15 +128,14 @@ def upsert(
 ) -> None:
     con.execute(
         """
-        INSERT INTO pages(path, mtime_ns, doc, page, date, year, time_key, snippet)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO pages(path, mtime_ns, doc, page, date, year, snippet)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(path) DO UPDATE SET
           mtime_ns=excluded.mtime_ns,
           doc=excluded.doc,
           page=excluded.page,
           date=excluded.date,
           year=excluded.year,
-          time_key=excluded.time_key,
           snippet=excluded.snippet;
         """,
         (
@@ -153,7 +145,6 @@ def upsert(
             int(page),
             parsed.d.isoformat() if parsed.d else None,
             int(parsed.d.year) if parsed.d else None,
-            int(parsed.time_key) if parsed.time_key is not None else None,
             parsed.snippet,
         ),
     )

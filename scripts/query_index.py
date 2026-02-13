@@ -12,6 +12,7 @@ import argparse
 import re
 import sqlite3
 
+
 def _coerce_db_path(p: str) -> str:
     """Accept either WSL paths (/c/...) or Windows paths (C:\\...)."""
     m = re.match(r"^([A-Za-z]):\\(.*)$", p)
@@ -21,6 +22,7 @@ def _coerce_db_path(p: str) -> str:
     rest = m.group(2).replace("\\", "/")
     return f"/{drive}/{rest}"
 
+
 def _coerce_fts_query(q: str) -> str:
     """Heuristic guardrail for common non-FTS inputs (especially file paths).
 
@@ -29,7 +31,7 @@ def _coerce_fts_query(q: str) -> str:
 
     If it *looks* like a path, treat it as a literal phrase.
     """
-    if ("/" in q or "\\\\" in q) and '"' not in q:
+    if ("/" in q or "\\" in q) and '"' not in q:
         q = q.replace('"', '""')
         return f'"{q}"'
     return q
@@ -62,11 +64,11 @@ def main() -> None:
     where_sql = (" AND " + " AND ".join(where)) if where else ""
 
     sql = (
-        "SELECT p.date, p.time_key, p.doc, p.page, p.path, p.snippet "
+        "SELECT p.date, p.doc, p.page, p.path, p.snippet "
         "FROM pages_fts f "
         "JOIN pages p ON p.path = f.path "
         "WHERE pages_fts MATCH ?" + where_sql + " "
-        "ORDER BY p.date ASC, p.time_key ASC "
+        "ORDER BY p.date ASC, p.doc ASC, p.page ASC "
         "LIMIT ?"
     )
 
@@ -74,15 +76,8 @@ def main() -> None:
 
     rows = con.execute(sql, qparams).fetchall()
     for r in rows:
-        d, tk, doc, page, path, snip = r
-        if tk is None:
-            t = "--:--"
-        else:
-            tk_int = int(tk)
-            hh = tk_int // 60
-            mm = tk_int % 60
-            t = f"{hh:02d}:{mm:02d}"
-        print(f"{d} {t} {doc}/page_{int(page):04d} :: {snip}")
+        d, doc, page, path, snip = r
+        print(f"{d} {doc}/page_{int(page):04d} :: {snip}")
         print(f"  {path}")
 
     con.close()
