@@ -1,6 +1,8 @@
-# msjournal-reader
+# journal-reader
 
 Convert Microsoft Journal `.ink` files (SQLite DB) into text by extracting per-page rendered PNGs and running OCR.
+
+This repo is both (a) a working development checkout and (b) an OpenClaw skill. For ClawHub publishing, use the trimmed bundle under `publish/journal-reader/`.
 
 This repo currently implements **Azure AI Vision Read**.
 It’s structured to allow additional OCR providers later (see `msjournal_reader/ocr/`).
@@ -30,6 +32,8 @@ Copy `.env.example` → `.env` and set:
 - `AZURE_VISION_ENDPOINT`
 - `AZURE_VISION_KEY`
 
+Publishing note: do **not** include `.env`, virtualenv folders, or personal `user_corrections/local/` in the ClawHub bundle.
+
 ## Convert an .ink file
 
 Run from the repo root (either `pip install -e .` or use `PYTHONPATH=.`):
@@ -53,6 +57,29 @@ Provide either:
 - or a JSON regex list: `[["<regex>", "<replacement>"], ...]`
 
 For personal corrections, store them in **`user_corrections/local/`** (gitignored). This directory is a good candidate to keep on a synced drive (e.g., OneDrive) and symlink back into the repo.
+
+### Candidate mining + review loop (systematic fixes)
+
+This repo includes a lightweight workflow to mine likely recurring OCR mistakes and turn them into regex correction rules:
+
+1) Mine candidates from your exported pages:
+
+```bash
+python3 scripts/mine_suspects.py \
+  --exports-base /path/to/exports/msjournal-reader \
+  --out-queue user_corrections/local/review_queue.jsonl \
+  --max-items 20
+```
+
+2) Review the queue interactively and append accepted rules to a regex corrections map:
+
+```bash
+python3 scripts/review_queue.py \
+  --queue user_corrections/local/review_queue.jsonl \
+  --corrections-map user_corrections/local/regex_corrections.json
+```
+
+3) Re-run conversion / exports so the new corrections apply (for example, re-run `scripts/update_exports.py` for your journals).
 
 ## Per-user neural post-corrector (optional)
 
@@ -142,3 +169,28 @@ PYTHONPATH=. python3 scripts/update_exports.py \
 ## OpenClaw skill
 
 The repo includes `SKILL.md` so it can be packaged/used as an OpenClaw skill.
+
+### Publish to ClawHub
+
+1) Build the publishable bundle (strips dev artifacts, `.env`, venvs, caches, and derived outputs):
+
+```bash
+./scripts/build_publish_bundle.sh
+```
+
+2) Publish the bundle directory:
+
+```bash
+clawhub publish ./publish/journal-reader \
+  --slug journal-reader \
+  --name "journal-reader" \
+  --version 0.1.0 \
+  --tags latest \
+  --changelog "Describe what changed"
+```
+
+Install test:
+
+```bash
+clawhub install journal-reader
+```

@@ -10,6 +10,14 @@ build/
 # Outputs / scratch
 out*/
 tmp/
+
+# Derived exports / indexes
+exports*/
+index*/
+*.sqlite
+
+# ClawHub publish bundle (derived)
+publish/
 # Optional training data (often sensitive)
 gold/
 # User-specific corrections (keep local; don't publish)

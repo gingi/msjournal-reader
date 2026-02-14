@@ -9,7 +9,31 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 import sqlite3
+
+
+def _coerce_db_path(p: str) -> str:
+    """Accept either WSL paths (/c/...) or Windows paths (C:\\...)."""
+    m = re.match(r"^([A-Za-z]):\\(.*)$", p)
+    if not m:
+        return p
+    drive = m.group(1).lower()
+    rest = m.group(2).replace("\\", "/")
+    return f"/{drive}/{rest}"
+
+
+def _coerce_fts_query(q: str) -> str:
+    """Heuristic guardrail for common non-FTS inputs (especially file paths).
+
+    SQLite FTS5 MATCH has its own query language; unescaped characters like '/'
+    in a path can raise: `fts5: syntax error near "/"`.
+
+    If it *looks* like a path, treat it as a literal phrase.
+    """
+    if ("/" in q or "\\" in q) and '"' not in q:
+        return f'"{q}"'
+    return q
 
 
 def main() -> None:
@@ -21,7 +45,10 @@ def main() -> None:
     ap.add_argument("--to", dest="date_to", default=None)
     args = ap.parse_args()
 
-    con = sqlite3.connect(args.db)
+    db_path = _coerce_db_path(args.db)
+    q = _coerce_fts_query(args.q)
+
+    con = sqlite3.connect(db_path)
 
     where = []
     params: list[object] = []
@@ -36,27 +63,20 @@ def main() -> None:
     where_sql = (" AND " + " AND ".join(where)) if where else ""
 
     sql = (
-        "SELECT p.date, p.time_key, p.doc, p.page, p.path, p.snippet "
+        "SELECT p.date, p.doc, p.page, p.path, p.snippet "
         "FROM pages_fts f "
         "JOIN pages p ON p.path = f.path "
-        "WHERE f MATCH ?" + where_sql + " "
-        "ORDER BY p.date ASC, p.time_key ASC "
+        "WHERE pages_fts MATCH ?" + where_sql + " "
+        "ORDER BY p.date ASC, p.doc ASC, p.page ASC "
         "LIMIT ?"
     )
 
-    qparams: list[object] = [args.q] + params + [int(args.limit)]
+    qparams: list[object] = [q] + params + [int(args.limit)]
 
     rows = con.execute(sql, qparams).fetchall()
     for r in rows:
-        d, tk, doc, page, path, snip = r
-        if tk is None:
-            t = "--:--"
-        else:
-            tk_int = int(tk)
-            hh = tk_int // 60
-            mm = tk_int % 60
-            t = f"{hh:02d}:{mm:02d}"
-        print(f"{d} {t} {doc}/page_{int(page):04d} :: {snip}")
+        d, doc, page, path, snip = r
+        print(f"{d} {doc}/page_{int(page):04d} :: {snip}")
         print(f"  {path}")
 
     con.close()
