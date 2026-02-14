@@ -91,7 +91,9 @@ def parse_corrections_tokens(corrections_path: Path) -> set[str]:
         data = json.loads(corrections_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return toks
-    except Exception:
+    except json.JSONDecodeError:
+        return toks
+    except OSError:
         return toks
 
     if not isinstance(data, list):

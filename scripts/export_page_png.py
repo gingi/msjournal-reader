@@ -21,7 +21,7 @@ import json
 import re
 from pathlib import Path
 
-from msjournal_reader.ink import extract_pages_png
+from msjournal_reader.ink import extract_single_page_png
 
 
 def slug(s: str) -> str:
@@ -63,13 +63,8 @@ def main() -> None:
     if ink_path is None:
         raise SystemExit(f"No .ink matched doc slug={doc}. Check config journals[]")
 
-    pages = extract_pages_png(ink_path)
     wanted = int(args.page)
-    hit = None
-    for p in pages:
-        if int(p.order) == wanted:
-            hit = p
-            break
+    hit = extract_single_page_png(ink_path, wanted)
     if hit is None:
         raise SystemExit(f"Page {wanted} not found in {ink_path}")
 
